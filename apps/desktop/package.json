@@ -1,0 +1,32 @@
+{
+  "name": "@pkos/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@pkos/shared": "0.1.0",
+    "@tauri-apps/api": "^2.0.0",
+    "axios": "^1.7.0",
+    "cytoscape": "^3.30.0",
+    "pinia": "^2.2.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.5.0",
+    "vite": "^8.0.16",
+    "vue-tsc": "^2.1.0"
+  }
+}

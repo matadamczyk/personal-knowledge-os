@@ -23,6 +23,7 @@ class NoteRead(BaseModel):
     content: str
     summary: str | None = None
     category: str | None = None
+    category_confidence: float | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -35,6 +36,7 @@ class NoteRead(BaseModel):
             "content": self.content,
             "summary": self.summary,
             "category": self.category,
+            "categoryConfidence": self.category_confidence,
             "createdAt": self.created_at.isoformat(),
             "updatedAt": self.updated_at.isoformat(),
         }

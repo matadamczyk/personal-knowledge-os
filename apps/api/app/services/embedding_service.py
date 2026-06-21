@@ -32,8 +32,12 @@ class EmbeddingService:
             logger.warning(f"Could not check/create Qdrant collection: {e}")
 
     def embed_text(self, text: str) -> list[float]:
-        if not self.is_active:
-            return [0.0] * 384
+        if not hasattr(self, "model") or self.model is None:
+            try:
+                self.model = TextEmbedding()
+            except Exception as e:
+                logger.error(f"Failed to initialize TextEmbedding fallback: {e}")
+                return [0.0] * 384
         try:
             # fastembed embed returns a generator
             embeddings = list(self.model.embed([text]))

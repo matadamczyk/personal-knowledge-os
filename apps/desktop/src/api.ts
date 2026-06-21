@@ -33,3 +33,14 @@ export async function healthCheck(): Promise<{ status: string }> {
   const response = await api.get<{ status: string }>("/health");
   return response.data;
 }
+
+export async function classifyNote(
+  title: string,
+  content: string
+): Promise<{ category: string; confidence: number }> {
+  const response = await api.post<{ category: string; confidence: number }>("/api/classify", {
+    title,
+    content
+  });
+  return response.data;
+}

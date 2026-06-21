@@ -4,6 +4,7 @@ export interface Note {
   content: string;
   summary?: string | null;
   category?: string | null;
+  categoryConfidence?: number | null;
   createdAt: string;
   updatedAt: string;
 }

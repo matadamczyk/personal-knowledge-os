@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useNotesStore } from "./stores/notes";
-import { searchNotes } from "./api";
+import { searchNotes, classifyNote } from "./api";
 import type { SearchResult } from "@pkos/shared";
 import { marked } from "marked";
 
@@ -86,6 +86,59 @@ watch(selectedNoteId, (newId) => {
     savingStatus.value = "idle";
   }
 });
+
+// Category Auto-Classification suggestion states
+const suggestedCategory = ref("");
+const suggestionConfidence = ref(0);
+const isClassifying = ref(false);
+let classifyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function runAutoClassification() {
+  if (classifyTimeout) clearTimeout(classifyTimeout);
+
+  const title = editableTitle.value.trim();
+  const content = editableContent.value.trim();
+
+  // Only run if we have a title and category is currently empty
+  if (!title || editableCategory.value.trim()) {
+    suggestedCategory.value = "";
+    suggestionConfidence.value = 0;
+    return;
+  }
+
+  isClassifying.value = true;
+  classifyTimeout = setTimeout(async () => {
+    try {
+      const res = await classifyNote(title, content);
+      suggestedCategory.value = res.category;
+      suggestionConfidence.value = res.confidence;
+    } catch (e) {
+      console.error("Auto-classification failed:", e);
+    } finally {
+      isClassifying.value = false;
+    }
+  }, 850); // 850ms debounce
+}
+
+// Watch fields to trigger category suggestion
+watch([editableTitle, editableContent, editableCategory], () => {
+  runAutoClassification();
+});
+
+// Watch selectedNoteId to reset suggestions on note switch
+watch(selectedNoteId, () => {
+  suggestedCategory.value = "";
+  suggestionConfidence.value = 0;
+});
+
+// Apply the classification suggestion to category field
+function acceptSuggestion() {
+  if (!suggestedCategory.value) return;
+  editableCategory.value = suggestedCategory.value;
+  suggestedCategory.value = "";
+  suggestionConfidence.value = 0;
+  onFieldInput(); // Trigger auto-save to persist the accepted category
+}
 
 // Filtered notes based on search query
 const filteredNotes = computed(() => {
@@ -545,6 +598,58 @@ onMounted(async () => {
                 class="rounded border border-[#2a2e3b] bg-[#16181d] px-2 py-0.5 text-xs text-white outline-none focus:border-[#10b981]"
                 @input="onFieldInput"
               />
+
+              <!-- Real-time TensorFlow Suggestion Badge -->
+              <span
+                v-if="suggestedCategory && suggestionConfidence > 0"
+                class="inline-flex items-center gap-1 rounded bg-[#10b981]/10 border border-[#10b981]/25 px-2 py-0.5 text-[10px] text-[#10b981]"
+              >
+                <span
+                  >✨ Suggestion: {{ suggestedCategory }} ({{
+                    Math.round(suggestionConfidence * 100)
+                  }}%)</span
+                >
+                <button
+                  class="ml-1 font-bold text-white hover:text-[#10b981] transition cursor-pointer"
+                  @click="acceptSuggestion"
+                >
+                  [Accept]
+                </button>
+              </span>
+
+              <!-- Classification Loader -->
+              <span
+                v-else-if="isClassifying"
+                class="inline-flex items-center gap-1 text-[10px] text-[#9ca3af]"
+              >
+                <svg class="h-3 w-3 animate-spin text-[#10b981]" fill="none" viewBox="0 0 24 24">
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  ></circle>
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+                Analyzing...
+              </span>
+
+              <!-- Auto-classified confirmation badge -->
+              <span
+                v-else-if="selectedNote?.categoryConfidence"
+                class="inline-flex items-center gap-1 rounded bg-[#1e2129] border border-[#2a2e3b] px-2 py-0.5 text-[10px] text-[#9ca3af]"
+                title="Classified by TensorFlow model"
+              >
+                <span
+                  >🧠 AI Classified ({{ Math.round(selectedNote.categoryConfidence * 100) }}%)</span
+                >
+              </span>
             </div>
             <div class="h-4 w-px bg-[#2a2e3b]"></div>
             <div>Last updated: {{ formatFullDate(selectedNote.updatedAt) }}</div>

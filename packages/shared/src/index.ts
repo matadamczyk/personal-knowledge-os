@@ -2,6 +2,8 @@ export interface Note {
   id: string;
   title: string;
   content: string;
+  summary?: string | null;
+  category?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -9,6 +11,13 @@ export interface Note {
 export interface CreateNoteInput {
   title: string;
   content: string;
+}
+
+export interface UpdateNoteInput {
+  title?: string;
+  content?: string;
+  summary?: string | null;
+  category?: string | null;
 }
 
 export interface SearchResult {

@@ -175,8 +175,8 @@ Output:
 Example:
 
 {
-  "category": "Machine Learning",
-  "confidence": 0.94
+"category": "Machine Learning",
+"confidence": 0.94
 }
 
 ---

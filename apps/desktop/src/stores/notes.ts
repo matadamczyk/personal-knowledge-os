@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
-import type { CreateNoteInput, Note } from "@pkos/shared";
-import { createNote, listNotes } from "../api";
+import type { CreateNoteInput, Note, UpdateNoteInput } from "@pkos/shared";
+import { createNote, listNotes, updateNote, deleteNote } from "../api";
 
 interface NotesState {
   items: Note[];
@@ -30,6 +30,18 @@ export const useNotesStore = defineStore("notes", {
       const note = await createNote(input);
       this.items.unshift(note);
       return note;
+    },
+    async update(id: string, input: UpdateNoteInput) {
+      const updated = await updateNote(id, input);
+      const index = this.items.findIndex((item) => item.id === id);
+      if (index !== -1) {
+        this.items[index] = updated;
+      }
+      return updated;
+    },
+    async delete(id: string) {
+      await deleteNote(id);
+      this.items = this.items.filter((item) => item.id !== id);
     }
   }
 });

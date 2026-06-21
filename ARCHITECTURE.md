@@ -19,37 +19,37 @@ The system is designed to operate locally whenever possible.
 # High Level Architecture
 
 ┌─────────────────────────────┐
-│        Tauri Desktop        │
+│ Tauri Desktop │
 ├─────────────────────────────┤
-│ Vue UI                      │
-│ Pinia Store                 │
-│ TailwindCSS                 │
+│ Vue UI │
+│ Pinia Store │
+│ TailwindCSS │
 └──────────────┬──────────────┘
-               │
-               ▼
+│
+▼
 ┌─────────────────────────────┐
-│       FastAPI Backend       │
+│ FastAPI Backend │
 ├─────────────────────────────┤
-│ Notes API                   │
-│ Search API                  │
-│ Chat API                    │
-│ Classification API          │
-│ Ingestion API               │
+│ Notes API │
+│ Search API │
+│ Chat API │
+│ Classification API │
+│ Ingestion API │
 └───────┬───────────┬─────────┘
-        │           │
-        ▼           ▼
+│ │
+▼ ▼
 
-┌─────────────┐   ┌─────────────┐
-│ TensorFlow  │   │ RAG Engine  │
-│ Models      │   │ Retrieval   │
-└──────┬──────┘   └──────┬──────┘
-       │                 │
-       ▼                 ▼
+┌─────────────┐ ┌─────────────┐
+│ TensorFlow │ │ RAG Engine │
+│ Models │ │ Retrieval │
+└──────┬──────┘ └──────┬──────┘
+│ │
+▼ ▼
 
-┌─────────────┐   ┌─────────────┐
-│ PostgreSQL  │   │ Qdrant      │
-│ Metadata    │   │ Embeddings  │
-└─────────────┘   └─────────────┘
+┌─────────────┐ ┌─────────────┐
+│ PostgreSQL │ │ Qdrant │
+│ Metadata │ │ Embeddings │
+└─────────────┘ └─────────────┘
 
 ---
 
@@ -165,8 +165,8 @@ POST /classify
 Response:
 
 {
-  "category": "Machine Learning",
-  "confidence": 0.93
+"category": "Machine Learning",
+"confidence": 0.93
 }
 
 Future:

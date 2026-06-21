@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models import Note
 from app.schemas.note import NoteCreate, NoteRead, NoteUpdate
+from app.services.embedding_service import EmbeddingService
 
 router = APIRouter(prefix="/notes", tags=["notes"])
+embedding_service = EmbeddingService()
 
 
 @router.get("")
@@ -34,6 +36,10 @@ def create_note(payload: NoteCreate, db: Session = Depends(get_db)) -> dict:
     db.add(note)
     db.commit()
     db.refresh(note)
+
+    # Index in Qdrant
+    embedding_service.index_note(note.id, note.title, note.content)
+
     return NoteRead.model_validate(note).model_dump_camel()
 
 
@@ -49,6 +55,10 @@ def update_note(note_id: str, payload: NoteUpdate, db: Session = Depends(get_db)
 
     db.commit()
     db.refresh(note)
+
+    # Re-index in Qdrant
+    embedding_service.index_note(note.id, note.title, note.content)
+
     return NoteRead.model_validate(note).model_dump_camel()
 
 
@@ -59,4 +69,8 @@ def delete_note(note_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Note not found")
     db.delete(note)
     db.commit()
+
+    # Delete from Qdrant
+    embedding_service.delete_note(note_id)
+
     return None

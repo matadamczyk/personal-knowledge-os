@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useNotesStore } from "./stores/notes";
+import { searchNotes } from "./api";
+import type { SearchResult } from "@pkos/shared";
 import { marked } from "marked";
 
 const notes = useNotesStore();
@@ -9,6 +11,15 @@ const notes = useNotesStore();
 const searchQuery = ref("");
 const selectedNoteId = ref<string | null>(null);
 const currentTab = ref<"write" | "preview">("write");
+
+// Semantic Search states
+const isSemanticSearch = ref(false);
+const isSearching = ref(false);
+const semanticSearchResults = ref<SearchResult[]>([]);
+
+const isShowingSemanticResults = computed(() => {
+  return isSemanticSearch.value && searchQuery.value.trim().length > 0;
+});
 
 // Input states
 const editableTitle = ref("");
@@ -33,6 +44,31 @@ const savingStatusText = computed(() => {
 // Selected note reactive computed
 const selectedNote = computed(() => {
   return notes.items.find((n) => n.id === selectedNoteId.value) || null;
+});
+
+// Watch query and toggle to trigger semantic search
+let searchTimeout: ReturnType<typeof setTimeout> | null = null;
+watch([searchQuery, isSemanticSearch], () => {
+  if (searchTimeout) clearTimeout(searchTimeout);
+
+  const query = searchQuery.value.trim();
+  if (!query || !isSemanticSearch.value) {
+    semanticSearchResults.value = [];
+    isSearching.value = false;
+    return;
+  }
+
+  isSearching.value = true;
+  searchTimeout = setTimeout(async () => {
+    try {
+      const results = await searchNotes(query);
+      semanticSearchResults.value = results;
+    } catch (e) {
+      console.error("Semantic search failed:", e);
+    } finally {
+      isSearching.value = false;
+    }
+  }, 400); // 400ms debounce
 });
 
 // Sync store note to local editable fields when selectedNoteId changes
@@ -215,8 +251,8 @@ onMounted(async () => {
       </div>
 
       <!-- Search Box -->
-      <div class="p-4">
-        <div class="relative flex items-center">
+      <div class="p-4 flex gap-2">
+        <div class="relative flex-1 flex items-center">
           <svg
             class="absolute left-3 h-4 w-4 text-[#9ca3af]"
             fill="none"
@@ -236,51 +272,160 @@ onMounted(async () => {
             class="w-full rounded-md border border-[#2a2e3b] bg-[#0f1013] py-1.5 pr-4 pl-9 text-sm text-[#f3f4f6] placeholder-[#9ca3af] outline-none transition focus:border-[#10b981]"
           />
         </div>
+
+        <button
+          :class="[
+            'rounded-md border p-1.5 transition flex items-center justify-center relative group',
+            isSemanticSearch
+              ? 'bg-[#10b981]/10 border-[#10b981] text-[#10b981]'
+              : 'bg-[#0f1013] border-[#2a2e3b] text-[#9ca3af] hover:text-[#f3f4f6]'
+          ]"
+          title="Toggle Semantic AI Search"
+          @click="isSemanticSearch = !isSemanticSearch"
+        >
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+              d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+            />
+          </svg>
+          <span
+            class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 scale-0 group-hover:scale-100 transition rounded bg-[#1e2129] border border-[#2a2e3b] px-2 py-1 text-[10px] font-medium text-white whitespace-nowrap z-20 pointer-events-none"
+          >
+            {{ isSemanticSearch ? "AI Search Active" : "Keyword Search" }}
+          </span>
+        </button>
       </div>
 
       <!-- Notes List -->
       <div class="flex-1 overflow-y-auto px-2 pb-4 space-y-1">
-        <div
-          v-for="note in filteredNotes"
-          :key="note.id"
-          :class="[
-            'group relative flex flex-col rounded-md p-3 cursor-pointer transition select-none',
-            selectedNoteId === note.id
-              ? 'bg-[#202225] border-l-2 border-[#10b981] pl-[10px]'
-              : 'hover:bg-[#1e2129] text-[#9ca3af] hover:text-[#f3f4f6]'
-          ]"
-          @click="selectNote(note.id)"
-        >
-          <div class="flex items-start justify-between">
-            <h3
-              :class="[
-                'font-medium text-sm truncate pr-2',
-                selectedNoteId === note.id ? 'text-white' : 'text-[#f3f4f6]'
-              ]"
-            >
-              {{ note.title || "Untitled Note" }}
-            </h3>
-            <span
-              v-if="note.category"
-              class="shrink-0 rounded bg-[#2a2e3b] px-1.5 py-0.5 text-[10px] font-medium text-[#10b981]"
-            >
-              {{ note.category }}
-            </span>
-          </div>
-          <p class="mt-1 text-xs leading-relaxed text-[#9ca3af] line-clamp-2">
-            {{ note.content || "Empty note..." }}
-          </p>
-          <span class="mt-2 text-[10px] text-[#9ca3af]/60">
-            {{ formatRelativeDate(note.updatedAt) }}
-          </span>
+        <!-- Loading State for Search -->
+        <div v-if="isSearching" class="flex flex-col items-center justify-center py-12 text-center">
+          <svg class="h-5 w-5 animate-spin text-[#10b981]" fill="none" viewBox="0 0 24 24">
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            ></circle>
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
+          </svg>
+          <p class="mt-2 text-xs text-[#9ca3af]">Running semantic retrieval...</p>
         </div>
 
-        <div
-          v-if="filteredNotes.length === 0"
-          class="flex flex-col items-center justify-center py-12 text-center"
-        >
-          <p class="text-xs text-[#9ca3af]">No notes found.</p>
-        </div>
+        <template v-else>
+          <!-- Semantic Search Results -->
+          <template v-if="isShowingSemanticResults">
+            <div
+              v-for="result in semanticSearchResults"
+              :key="result.id"
+              :class="[
+                'group relative flex flex-col rounded-md p-3 cursor-pointer transition select-none',
+                selectedNoteId === result.id
+                  ? 'bg-[#202225] border-l-2 border-[#10b981] pl-[10px]'
+                  : 'hover:bg-[#1e2129] text-[#9ca3af] hover:text-[#f3f4f6]'
+              ]"
+              @click="selectNote(result.id)"
+            >
+              <div class="flex items-start justify-between">
+                <h3
+                  :class="[
+                    'font-medium text-sm truncate pr-2',
+                    selectedNoteId === result.id ? 'text-white' : 'text-[#f3f4f6]'
+                  ]"
+                >
+                  {{ result.title || "Untitled Note" }}
+                </h3>
+                <span
+                  class="shrink-0 rounded bg-[#10b981]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#10b981] border border-[#10b981]/25"
+                >
+                  {{ Math.round(result.score * 100) }}% match
+                </span>
+              </div>
+              <p class="mt-1 text-xs leading-relaxed text-[#9ca3af] line-clamp-2">
+                {{ result.excerpt || "No content" }}
+              </p>
+
+              <!-- Metadata (Category & Date) -->
+              <div class="mt-2 flex items-center justify-between">
+                <span
+                  v-if="notes.items.find((n) => n.id === result.id)?.category"
+                  class="rounded bg-[#2a2e3b] px-1.5 py-0.5 text-[10px] font-medium text-[#10b981]"
+                >
+                  {{ notes.items.find((n) => n.id === result.id)?.category }}
+                </span>
+                <span class="text-[10px] text-[#9ca3af]/60 ml-auto">
+                  {{
+                    formatRelativeDate(
+                      notes.items.find((n) => n.id === result.id)?.updatedAt ||
+                        new Date().toISOString()
+                    )
+                  }}
+                </span>
+              </div>
+            </div>
+
+            <div
+              v-if="semanticSearchResults.length === 0"
+              class="flex flex-col items-center justify-center py-12 text-center"
+            >
+              <p class="text-xs text-[#9ca3af]">No matches found.</p>
+            </div>
+          </template>
+
+          <!-- Regular / Keyword filtered list -->
+          <template v-else>
+            <div
+              v-for="note in filteredNotes"
+              :key="note.id"
+              :class="[
+                'group relative flex flex-col rounded-md p-3 cursor-pointer transition select-none',
+                selectedNoteId === note.id
+                  ? 'bg-[#202225] border-l-2 border-[#10b981] pl-[10px]'
+                  : 'hover:bg-[#1e2129] text-[#9ca3af] hover:text-[#f3f4f6]'
+              ]"
+              @click="selectNote(note.id)"
+            >
+              <div class="flex items-start justify-between">
+                <h3
+                  :class="[
+                    'font-medium text-sm truncate pr-2',
+                    selectedNoteId === note.id ? 'text-white' : 'text-[#f3f4f6]'
+                  ]"
+                >
+                  {{ note.title || "Untitled Note" }}
+                </h3>
+                <span
+                  v-if="note.category"
+                  class="shrink-0 rounded bg-[#2a2e3b] px-1.5 py-0.5 text-[10px] font-medium text-[#10b981]"
+                >
+                  {{ note.category }}
+                </span>
+              </div>
+              <p class="mt-1 text-xs leading-relaxed text-[#9ca3af] line-clamp-2">
+                {{ note.content || "Empty note..." }}
+              </p>
+              <span class="mt-2 text-[10px] text-[#9ca3af]/60">
+                {{ formatRelativeDate(note.updatedAt) }}
+              </span>
+            </div>
+
+            <div
+              v-if="filteredNotes.length === 0"
+              class="flex flex-col items-center justify-center py-12 text-center"
+            >
+              <p class="text-xs text-[#9ca3af]">No notes found.</p>
+            </div>
+          </template>
+        </template>
       </div>
 
       <!-- Sidebar Footer -->

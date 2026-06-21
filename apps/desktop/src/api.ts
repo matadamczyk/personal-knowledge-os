@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { CreateNoteInput, Note, UpdateNoteInput } from "@pkos/shared";
+import type { CreateNoteInput, Note, UpdateNoteInput, SearchResult } from "@pkos/shared";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000"
@@ -22,6 +22,11 @@ export async function updateNote(id: string, input: UpdateNoteInput): Promise<No
 
 export async function deleteNote(id: string): Promise<void> {
   await api.delete(`/api/notes/${id}`);
+}
+
+export async function searchNotes(query: string, limit: number = 20): Promise<SearchResult[]> {
+  const response = await api.post<SearchResult[]>("/api/search", { query, limit });
+  return response.data;
 }
 
 export async function healthCheck(): Promise<{ status: string }> {

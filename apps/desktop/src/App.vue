@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch, nextTick } from "vue";
 import { useNotesStore } from "./stores/notes";
-import { searchNotes, classifyNote } from "./api";
+import { searchNotes, classifyNote, sendChatMessage } from "./api";
 import type { SearchResult } from "@pkos/shared";
 import { marked } from "marked";
 
@@ -11,6 +11,24 @@ const notes = useNotesStore();
 const searchQuery = ref("");
 const selectedNoteId = ref<string | null>(null);
 const currentTab = ref<"write" | "preview">("write");
+
+// Chat Workspace states
+interface ChatMessage {
+  sender: "user" | "ai";
+  text: string;
+  sources?: Array<{ id: string; title: string; score: number }>;
+}
+
+const currentMode = ref<"notes" | "chat">("notes");
+const chatInput = ref("");
+const isChatSending = ref(false);
+const chatContainer = ref<HTMLElement | null>(null);
+const chatMessages = ref<ChatMessage[]>([
+  {
+    sender: "ai",
+    text: "Welcome to your AI Second Brain! Ask me any questions about your stored knowledge and I will answer them based on your notes."
+  }
+]);
 
 // Semantic Search states
 const isSemanticSearch = ref(false);
@@ -138,6 +156,53 @@ function acceptSuggestion() {
   suggestedCategory.value = "";
   suggestionConfidence.value = 0;
   onFieldInput(); // Trigger auto-save to persist the accepted category
+}
+
+// Chat functions
+function scrollToBottom() {
+  nextTick(() => {
+    if (chatContainer.value) {
+      chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+    }
+  });
+}
+
+async function sendChatMessageAction() {
+  const msg = chatInput.value.trim();
+  if (!msg || isChatSending.value) return;
+
+  chatMessages.value.push({ sender: "user", text: msg });
+  chatInput.value = "";
+  isChatSending.value = true;
+  scrollToBottom();
+
+  try {
+    const res = await sendChatMessage(msg);
+    chatMessages.value.push({
+      sender: "ai",
+      text: res.answer,
+      sources: res.sources
+    });
+  } catch (e) {
+    console.error(e);
+    chatMessages.value.push({
+      sender: "ai",
+      text: "⚠️ **Failed to get a response from your AI Second Brain.** Please verify the backend API server is running."
+    });
+  } finally {
+    isChatSending.value = false;
+    scrollToBottom();
+  }
+}
+
+function openSourceNote(noteId: string) {
+  currentMode.value = "notes";
+  selectedNoteId.value = noteId;
+}
+
+function sendQuickQuery(queryText: string) {
+  chatInput.value = queryText;
+  sendChatMessageAction();
 }
 
 // Filtered notes based on search query
@@ -278,6 +343,14 @@ function formatFullDate(dateStr: string) {
   }
 }
 
+function parseMarkdown(text: string) {
+  try {
+    return marked.parse(text || "");
+  } catch {
+    return text;
+  }
+}
+
 onMounted(async () => {
   await notes.load();
   if (notes.items.length > 0) {
@@ -301,6 +374,54 @@ onMounted(async () => {
         >
           MVP
         </span>
+      </div>
+
+      <!-- Workspace Mode Switcher -->
+      <div class="border-b border-[#2a2e3b] bg-[#121418] p-2 flex">
+        <button
+          :class="[
+            'flex-1 rounded py-1.5 text-xs font-semibold tracking-wider transition uppercase select-none flex items-center justify-center gap-1.5 cursor-pointer',
+            currentMode === 'notes'
+              ? 'bg-[#1e2129] text-white shadow-sm border border-[#2a2e3b]'
+              : 'text-[#9ca3af] hover:text-white'
+          ]"
+          @click="currentMode = 'notes'"
+        >
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l4 4v10a2 2 0 01-2 2z"
+            ></path>
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M14 2v4a2 2 0 002 2h4"
+            ></path>
+          </svg>
+          Notes
+        </button>
+        <button
+          :class="[
+            'flex-1 rounded py-1.5 text-xs font-semibold tracking-wider transition uppercase select-none flex items-center justify-center gap-1.5 cursor-pointer',
+            currentMode === 'chat'
+              ? 'bg-[#1e2129] text-white shadow-sm border border-[#2a2e3b]'
+              : 'text-[#9ca3af] hover:text-white'
+          ]"
+          @click="currentMode = 'chat'"
+        >
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            ></path>
+          </svg>
+          AI Chat
+        </button>
       </div>
 
       <!-- Search Box -->
@@ -502,198 +623,349 @@ onMounted(async () => {
 
     <!-- Main Workspace -->
     <main class="flex flex-1 flex-col overflow-hidden bg-[#0f1013]">
-      <!-- Editor Workspace -->
-      <div v-if="selectedNote" class="flex flex-1 flex-col overflow-hidden">
-        <!-- Workspace Header -->
-        <div
-          class="flex items-center justify-between border-b border-[#2a2e3b] bg-[#16181d] px-6 py-3"
-        >
-          <!-- Tabs & Status -->
-          <div class="flex items-center gap-4">
-            <div class="flex rounded-md border border-[#2a2e3b] bg-[#0f1013] p-1">
-              <button
-                :class="[
-                  'rounded px-3 py-1 text-xs font-medium transition select-none',
-                  currentTab === 'write'
-                    ? 'bg-[#1e2129] text-white shadow-sm'
-                    : 'text-[#9ca3af] hover:text-white'
-                ]"
-                @click="currentTab = 'write'"
-              >
-                Write
-              </button>
-              <button
-                :class="[
-                  'rounded px-3 py-1 text-xs font-medium transition select-none',
-                  currentTab === 'preview'
-                    ? 'bg-[#1e2129] text-white shadow-sm'
-                    : 'text-[#9ca3af] hover:text-white'
-                ]"
-                @click="currentTab = 'preview'"
-              >
-                Preview
-              </button>
+      <template v-if="currentMode === 'notes'">
+        <!-- Editor Workspace -->
+        <div v-if="selectedNote" class="flex flex-1 flex-col overflow-hidden">
+          <!-- Workspace Header -->
+          <div
+            class="flex items-center justify-between border-b border-[#2a2e3b] bg-[#16181d] px-6 py-3"
+          >
+            <!-- Tabs & Status -->
+            <div class="flex items-center gap-4">
+              <div class="flex rounded-md border border-[#2a2e3b] bg-[#0f1013] p-1">
+                <button
+                  :class="[
+                    'rounded px-3 py-1 text-xs font-medium transition select-none',
+                    currentTab === 'write'
+                      ? 'bg-[#1e2129] text-white shadow-sm'
+                      : 'text-[#9ca3af] hover:text-white'
+                  ]"
+                  @click="currentTab = 'write'"
+                >
+                  Write
+                </button>
+                <button
+                  :class="[
+                    'rounded px-3 py-1 text-xs font-medium transition select-none',
+                    currentTab === 'preview'
+                      ? 'bg-[#1e2129] text-white shadow-sm'
+                      : 'text-[#9ca3af] hover:text-white'
+                  ]"
+                  @click="currentTab = 'preview'"
+                >
+                  Preview
+                </button>
+              </div>
+
+              <!-- Auto-save Status Indicator -->
+              <span class="flex items-center gap-1.5 text-xs text-[#9ca3af]">
+                <span v-if="savingStatus === 'saving'" class="relative flex h-2 w-2">
+                  <span
+                    class="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#10b981] opacity-75"
+                  ></span>
+                  <span class="relative inline-flex h-2 w-2 rounded-full bg-[#10b981]"></span>
+                </span>
+                <span
+                  v-else-if="savingStatus === 'saved'"
+                  class="flex items-center gap-0.5 text-[#10b981]"
+                >
+                  <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="3"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                </span>
+                <span class="h-2 w-2 rounded-full bg-zinc-600"></span>
+                {{ savingStatusText }}
+              </span>
             </div>
 
-            <!-- Auto-save Status Indicator -->
-            <span class="flex items-center gap-1.5 text-xs text-[#9ca3af]">
-              <span v-if="savingStatus === 'saving'" class="relative flex h-2 w-2">
-                <span
-                  class="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#10b981] opacity-75"
-                ></span>
-                <span class="relative inline-flex h-2 w-2 rounded-full bg-[#10b981]"></span>
-              </span>
-              <span
-                v-else-if="savingStatus === 'saved'"
-                class="flex items-center gap-0.5 text-[#10b981]"
+            <!-- Actions -->
+            <div class="flex items-center gap-2">
+              <button
+                class="rounded-md border border-[#2a2e3b] bg-[#16181d] p-2 text-[#9ca3af] transition hover:border-[#f87171]/50 hover:bg-[#7f1d1d]/20 hover:text-[#f87171]"
+                title="Delete Note"
+                @click="deleteActiveNote"
               >
-                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M5 13l4 4L19 7"
+                    stroke-width="2"
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                   />
                 </svg>
-              </span>
-              <span v-else class="h-2 w-2 rounded-full bg-zinc-600"></span>
-              {{ savingStatusText }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Editor Title & Metadata -->
+          <div class="flex flex-col gap-3 border-b border-[#2a2e3b] px-8 py-5">
+            <input
+              v-model="editableTitle"
+              placeholder="Untitled Note"
+              class="w-full bg-transparent text-2xl font-bold tracking-tight text-white outline-none placeholder-[#9ca3af]/40"
+              @input="onFieldInput"
+            />
+
+            <div class="flex items-center gap-4 text-xs text-[#9ca3af]">
+              <div class="flex items-center gap-1.5">
+                <span class="font-medium text-[#9ca3af]/80">Category:</span>
+                <input
+                  v-model="editableCategory"
+                  placeholder="Uncategorized"
+                  class="rounded border border-[#2a2e3b] bg-[#16181d] px-2 py-0.5 text-xs text-white outline-none focus:border-[#10b981]"
+                  @input="onFieldInput"
+                />
+
+                <!-- Real-time TensorFlow Suggestion Badge -->
+                <span
+                  v-if="suggestedCategory && suggestionConfidence > 0"
+                  class="inline-flex items-center gap-1 rounded bg-[#10b981]/10 border border-[#10b981]/25 px-2 py-0.5 text-[10px] text-[#10b981]"
+                >
+                  <span
+                    >✨ Suggestion: {{ suggestedCategory }} ({{
+                      Math.round(suggestionConfidence * 100)
+                    }}%)</span
+                  >
+                  <button
+                    class="ml-1 font-bold text-white hover:text-[#10b981] transition cursor-pointer"
+                    @click="acceptSuggestion"
+                  >
+                    [Accept]
+                  </button>
+                </span>
+
+                <!-- Classification Loader -->
+                <span
+                  v-else-if="isClassifying"
+                  class="inline-flex items-center gap-1 text-[10px] text-[#9ca3af]"
+                >
+                  <svg class="h-3 w-3 animate-spin text-[#10b981]" fill="none" viewBox="0 0 24 24">
+                    <circle
+                      class="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      stroke-width="4"
+                    ></circle>
+                    <path
+                      class="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  Analyzing...
+                </span>
+
+                <!-- Auto-classified confirmation badge -->
+                <span
+                  v-else-if="selectedNote?.categoryConfidence"
+                  class="inline-flex items-center gap-1 rounded bg-[#1e2129] border border-[#2a2e3b] px-2 py-0.5 text-[10px] text-[#9ca3af]"
+                  title="Classified by TensorFlow model"
+                >
+                  <span
+                    >🧠 AI Classified ({{
+                      Math.round(selectedNote.categoryConfidence * 100)
+                    }}%)</span
+                  >
+                </span>
+              </div>
+              <div class="h-4 w-px bg-[#2a2e3b]"></div>
+              <div>Last updated: {{ formatFullDate(selectedNote.updatedAt) }}</div>
+            </div>
+          </div>
+
+          <!-- Textarea / Preview Container -->
+          <div class="flex-1 overflow-hidden">
+            <!-- Write Tab -->
+            <div v-show="currentTab === 'write'" class="h-full w-full p-8">
+              <textarea
+                v-model="editableContent"
+                placeholder="Start writing in Markdown..."
+                class="h-full w-full resize-none bg-transparent font-mono text-sm leading-relaxed text-[#e5e7eb] outline-none placeholder-[#9ca3af]/30"
+                @input="onFieldInput"
+              />
+            </div>
+
+            <!-- Preview Tab -->
+            <div v-show="currentTab === 'preview'" class="h-full w-full overflow-y-auto px-8 py-6">
+              <!-- eslint-disable-next-line vue/no-v-html -->
+              <div class="markdown-preview" v-html="previewHtml"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div v-else class="flex flex-1 flex-col items-center justify-center p-12 text-center">
+          <div
+            class="rounded-full border border-[#2a2e3b] bg-[#16181d] p-4 text-[#10b981] shadow-lg"
+          >
+            <svg
+              class="h-8 w-8 animate-pulse"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+              />
+            </svg>
+          </div>
+          <h2 class="mt-4 text-base font-semibold text-white">Your Second Brain</h2>
+          <p class="mt-1 max-w-xs text-xs leading-relaxed text-[#9ca3af]">
+            Create a new note or select an existing one to begin capture. Supports rich Markdown
+            formatting.
+          </p>
+        </div>
+      </template>
+
+      <template v-else-if="currentMode === 'chat'">
+        <!-- AI Chat Workspace -->
+        <div class="flex flex-1 flex-col overflow-hidden">
+          <!-- Chat Header -->
+          <div
+            class="flex items-center justify-between border-b border-[#2a2e3b] bg-[#16181d] px-6 py-4"
+          >
+            <div>
+              <h2 class="text-sm font-semibold tracking-wide text-white">
+                AI Second Brain Assistant
+              </h2>
+              <p class="text-[10px] text-[#9ca3af]">
+                Conversational Retrieval-Augmented Generation (RAG)
+              </p>
+            </div>
+            <span
+              class="rounded bg-[#10b981]/15 px-2 py-0.5 text-[9px] font-semibold text-[#10b981] border border-[#10b981]/25 uppercase tracking-wider"
+            >
+              Local LLM RAG Mode
             </span>
           </div>
 
-          <!-- Actions -->
-          <div class="flex items-center gap-2">
-            <button
-              class="rounded-md border border-[#2a2e3b] bg-[#16181d] p-2 text-[#9ca3af] transition hover:border-[#f87171]/50 hover:bg-[#7f1d1d]/20 hover:text-[#f87171]"
-              title="Delete Note"
-              @click="deleteActiveNote"
+          <!-- Chat Message Stream -->
+          <div ref="chatContainer" class="flex-1 overflow-y-auto p-6 space-y-4 bg-[#0f1013]">
+            <div
+              v-for="(msg, idx) in chatMessages"
+              :key="idx"
+              :class="[
+                'flex flex-col max-w-[80%] rounded-lg p-4 leading-relaxed text-sm',
+                msg.sender === 'user'
+                  ? 'bg-[#10b981]/10 border border-[#10b981]/20 text-[#f3f4f6] ml-auto rounded-tr-none'
+                  : 'bg-[#16181d] border border-[#2a2e3b] text-[#d1d5db] mr-auto rounded-tl-none'
+              ]"
             >
-              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <!-- Message Text -->
+              <!-- eslint-disable-next-line vue/no-v-html -->
+              <div class="markdown-content" v-html="parseMarkdown(msg.text)"></div>
+
+              <!-- Matched Sources (RAG References) -->
+              <div
+                v-if="msg.sources && msg.sources.length > 0"
+                class="mt-3 pt-3 border-t border-[#2a2e3b] flex flex-col gap-1.5"
+              >
+                <span class="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider"
+                  >References:</span
+                >
+                <div class="flex flex-wrap gap-1.5">
+                  <button
+                    v-for="src in msg.sources"
+                    :key="src.id"
+                    class="inline-flex items-center gap-1 rounded bg-[#202225] hover:bg-[#2a2e3b] border border-[#2a2e3b] px-2 py-0.5 text-[10px] text-[#10b981] transition cursor-pointer select-none"
+                    :title="`Click to open note. Match score: ${Math.round(src.score * 100)}%`"
+                    @click="openSourceNote(src.id)"
+                  >
+                    <span>📄 {{ src.title }}</span>
+                    <span class="text-[#9ca3af]/60"
+                      >({{ Math.round(src.score * 100) }}% match)</span
+                    >
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sending/Typing Indicator -->
+            <div
+              v-if="isChatSending"
+              class="bg-[#16181d] border border-[#2a2e3b] rounded-lg rounded-tl-none p-4 max-w-[80%] mr-auto flex items-center gap-2 text-xs text-[#9ca3af]"
+            >
+              <svg class="h-4 w-4 animate-spin text-[#10b981]" fill="none" viewBox="0 0 24 24">
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                ></circle>
                 <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
               </svg>
-            </button>
+              <span>Thinking and retrieving context...</span>
+            </div>
           </div>
-        </div>
 
-        <!-- Editor Title & Metadata -->
-        <div class="flex flex-col gap-3 border-b border-[#2a2e3b] px-8 py-5">
-          <input
-            v-model="editableTitle"
-            placeholder="Untitled Note"
-            class="w-full bg-transparent text-2xl font-bold tracking-tight text-white outline-none placeholder-[#9ca3af]/40"
-            @input="onFieldInput"
-          />
+          <!-- Quick Chips & Chat Input Footer -->
+          <div class="border-t border-[#2a2e3b] bg-[#16181d] p-4 flex flex-col gap-3">
+            <!-- Quick Suggestion Chips -->
+            <div class="flex flex-wrap gap-2">
+              <button
+                class="rounded-full bg-[#0f1013] hover:bg-[#202225] border border-[#2a2e3b] px-3 py-1 text-[10px] text-[#9ca3af] hover:text-[#f3f4f6] transition cursor-pointer"
+                @click="sendQuickQuery('Summarize my FastAPI notes')"
+              >
+                💡 Summarize FastAPI notes
+              </button>
+              <button
+                class="rounded-full bg-[#0f1013] hover:bg-[#202225] border border-[#2a2e3b] px-3 py-1 text-[10px] text-[#9ca3af] hover:text-[#f3f4f6] transition cursor-pointer"
+                @click="sendQuickQuery('What is the best way to handle Python context managers?')"
+              >
+                💡 Python context managers
+              </button>
+              <button
+                class="rounded-full bg-[#0f1013] hover:bg-[#202225] border border-[#2a2e3b] px-3 py-1 text-[10px] text-[#9ca3af] hover:text-[#f3f4f6] transition cursor-pointer"
+                @click="sendQuickQuery('Show Vue 3 composition API examples')"
+              >
+                💡 Vue 3 composition API
+              </button>
+            </div>
 
-          <div class="flex items-center gap-4 text-xs text-[#9ca3af]">
-            <div class="flex items-center gap-1.5">
-              <span class="font-medium text-[#9ca3af]/80">Category:</span>
+            <!-- Input Box -->
+            <div class="flex gap-2">
               <input
-                v-model="editableCategory"
-                placeholder="Uncategorized"
-                class="rounded border border-[#2a2e3b] bg-[#16181d] px-2 py-0.5 text-xs text-white outline-none focus:border-[#10b981]"
-                @input="onFieldInput"
+                v-model="chatInput"
+                placeholder="Ask your second brain anything..."
+                class="flex-1 rounded-md border border-[#2a2e3b] bg-[#0f1013] px-4 py-2.5 text-sm text-[#f3f4f6] placeholder-[#9ca3af] outline-none transition focus:border-[#10b981]"
+                :disabled="isChatSending"
+                @keyup.enter="sendChatMessageAction"
               />
-
-              <!-- Real-time TensorFlow Suggestion Badge -->
-              <span
-                v-if="suggestedCategory && suggestionConfidence > 0"
-                class="inline-flex items-center gap-1 rounded bg-[#10b981]/10 border border-[#10b981]/25 px-2 py-0.5 text-[10px] text-[#10b981]"
+              <button
+                class="rounded-md bg-[#10b981] hover:bg-[#059669] text-white px-5 py-2.5 text-sm font-semibold shadow-md shadow-[#10b981]/10 transition flex items-center justify-center gap-1 active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
+                :disabled="isChatSending || !chatInput.trim()"
+                @click="sendChatMessageAction"
               >
-                <span
-                  >✨ Suggestion: {{ suggestedCategory }} ({{
-                    Math.round(suggestionConfidence * 100)
-                  }}%)</span
-                >
-                <button
-                  class="ml-1 font-bold text-white hover:text-[#10b981] transition cursor-pointer"
-                  @click="acceptSuggestion"
-                >
-                  [Accept]
-                </button>
-              </span>
-
-              <!-- Classification Loader -->
-              <span
-                v-else-if="isClassifying"
-                class="inline-flex items-center gap-1 text-[10px] text-[#9ca3af]"
-              >
-                <svg class="h-3 w-3 animate-spin text-[#10b981]" fill="none" viewBox="0 0 24 24">
-                  <circle
-                    class="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    stroke-width="4"
-                  ></circle>
+                <span>Send</span>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
-                    class="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2.2"
+                    d="M14 5l7 7m0 0l-7 7m7-7H3"
                   ></path>
                 </svg>
-                Analyzing...
-              </span>
-
-              <!-- Auto-classified confirmation badge -->
-              <span
-                v-else-if="selectedNote?.categoryConfidence"
-                class="inline-flex items-center gap-1 rounded bg-[#1e2129] border border-[#2a2e3b] px-2 py-0.5 text-[10px] text-[#9ca3af]"
-                title="Classified by TensorFlow model"
-              >
-                <span
-                  >🧠 AI Classified ({{ Math.round(selectedNote.categoryConfidence * 100) }}%)</span
-                >
-              </span>
+              </button>
             </div>
-            <div class="h-4 w-px bg-[#2a2e3b]"></div>
-            <div>Last updated: {{ formatFullDate(selectedNote.updatedAt) }}</div>
           </div>
         </div>
-
-        <!-- Textarea / Preview Container -->
-        <div class="flex-1 overflow-hidden">
-          <!-- Write Tab -->
-          <div v-show="currentTab === 'write'" class="h-full w-full p-8">
-            <textarea
-              v-model="editableContent"
-              placeholder="Start writing in Markdown..."
-              class="h-full w-full resize-none bg-transparent font-mono text-sm leading-relaxed text-[#e5e7eb] outline-none placeholder-[#9ca3af]/30"
-              @input="onFieldInput"
-            />
-          </div>
-
-          <!-- Preview Tab -->
-          <div v-show="currentTab === 'preview'" class="h-full w-full overflow-y-auto px-8 py-6">
-            <!-- eslint-disable-next-line vue/no-v-html -->
-            <div class="markdown-preview" v-html="previewHtml"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Empty State -->
-      <div v-else class="flex flex-1 flex-col items-center justify-center p-12 text-center">
-        <div class="rounded-full border border-[#2a2e3b] bg-[#16181d] p-4 text-[#10b981] shadow-lg">
-          <svg class="h-8 w-8 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-            />
-          </svg>
-        </div>
-        <h2 class="mt-4 text-base font-semibold text-white">Your Second Brain</h2>
-        <p class="mt-1 max-w-xs text-xs leading-relaxed text-[#9ca3af]">
-          Create a new note or select an existing one to begin capture. Supports rich Markdown
-          formatting.
-        </p>
-      </div>
+      </template>
     </main>
   </div>
 </template>

@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///../../data/pkos.sqlite3"
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "knowledge_items"
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

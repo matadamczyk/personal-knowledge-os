@@ -44,3 +44,14 @@ export async function classifyNote(
   });
   return response.data;
 }
+
+export async function sendChatMessage(message: string): Promise<{
+  answer: string;
+  sources: Array<{ id: string; title: string; score: number }>;
+}> {
+  const response = await api.post<{
+    answer: string;
+    sources: Array<{ id: string; title: string; score: number }>;
+  }>("/api/chat", { message });
+  return response.data;
+}

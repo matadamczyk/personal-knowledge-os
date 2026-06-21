@@ -76,7 +76,7 @@ def test_chat_with_mocked_ollama(monkeypatch):
     # Mock LLMService.generate_response to simulate a successful Ollama response
     from app.services.llm_service import LLMService
 
-    def mock_generate_response(self, prompt: str) -> str:
+    def mock_generate_response(self, prompt: str, *args, **kwargs) -> str:
         return "To configure CORS in FastAPI, import CORSMiddleware and add it."
 
     monkeypatch.setattr(LLMService, "generate_response", mock_generate_response)
@@ -99,3 +99,72 @@ def test_chat_with_mocked_ollama(monkeypatch):
     assert "CORSMiddleware" in data["answer"]
     assert len(data["sources"]) > 0
     assert data["sources"][0]["title"] == "FastAPI CORS setup instructions"
+
+
+def test_chat_openai_success(monkeypatch):
+    from app.services.llm_service import LLMService
+
+    called = False
+
+    def mock_call_openai(self, prompt: str, api_key: str | None, model: str | None) -> str | None:
+        nonlocal called
+        called = True
+        assert api_key == "mock-openai-key"
+        assert model == "gpt-4o-mini"
+        return "OpenAI generated answer."
+
+    monkeypatch.setattr(LLMService, "_call_openai", mock_call_openai)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Hello AI",
+            "provider": "openai",
+            "api_key": "mock-openai-key",
+            "model": "gpt-4o-mini",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["answer"] == "OpenAI generated answer."
+    assert called is True
+
+
+def test_chat_gemini_success(monkeypatch):
+    from app.services.llm_service import LLMService
+
+    called = False
+
+    def mock_call_gemini(self, prompt: str, api_key: str | None, model: str | None) -> str | None:
+        nonlocal called
+        called = True
+        assert api_key == "mock-gemini-key"
+        assert model == "gemini-1.5-flash"
+        return "Gemini generated answer."
+
+    monkeypatch.setattr(LLMService, "_call_gemini", mock_call_gemini)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Hello Gemini",
+            "provider": "gemini",
+            "api_key": "mock-gemini-key",
+            "model": "gemini-1.5-flash",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["answer"] == "Gemini generated answer."
+    assert called is True
+
+
+def test_chat_missing_api_key():
+    # OpenAI provider with missing key should fall back to graceful message
+    response = client.post(
+        "/api/chat",
+        json={"message": "Hello AI", "provider": "openai", "api_key": None},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "unreachable" in data["answer"] or "offline" in data["answer"] or "⚠️" in data["answer"]

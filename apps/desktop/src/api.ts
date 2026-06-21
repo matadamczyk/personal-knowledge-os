@@ -45,13 +45,25 @@ export async function classifyNote(
   return response.data;
 }
 
-export async function sendChatMessage(message: string): Promise<{
+export async function sendChatMessage(
+  message: string,
+  provider?: string,
+  apiKey?: string,
+  model?: string,
+  ollamaUrl?: string
+): Promise<{
   answer: string;
   sources: Array<{ id: string; title: string; score: number }>;
 }> {
   const response = await api.post<{
     answer: string;
     sources: Array<{ id: string; title: string; score: number }>;
-  }>("/api/chat", { message });
+  }>("/api/chat", {
+    message,
+    provider,
+    api_key: apiKey,
+    model,
+    ollama_url: ollamaUrl
+  });
   return response.data;
 }

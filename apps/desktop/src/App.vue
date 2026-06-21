@@ -158,6 +158,45 @@ function acceptSuggestion() {
   onFieldInput(); // Trigger auto-save to persist the accepted category
 }
 
+// AI Settings & Chat configuration
+const isSettingsOpen = ref(false);
+const showOpenaiKey = ref(false);
+const showGeminiKey = ref(false);
+
+const settingsForm = ref({
+  provider: "ollama",
+  ollamaUrl: "http://localhost:11434",
+  ollamaModel: "llama3.2",
+  openaiApiKey: "",
+  openaiModel: "gpt-4o-mini",
+  geminiApiKey: "",
+  geminiModel: "gemini-1.5-flash"
+});
+
+function loadSettings() {
+  const stored = localStorage.getItem("pkos_ai_settings");
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      settingsForm.value = { ...settingsForm.value, ...parsed };
+    } catch (e) {
+      console.error("Failed to parse settings", e);
+    }
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem("pkos_ai_settings", JSON.stringify(settingsForm.value));
+  isSettingsOpen.value = false;
+}
+
+const activeProviderName = computed(() => {
+  const prov = settingsForm.value.provider;
+  if (prov === "openai") return "OpenAI";
+  if (prov === "gemini") return "Gemini";
+  return "Ollama";
+});
+
 // Chat functions
 function scrollToBottom() {
   nextTick(() => {
@@ -176,8 +215,24 @@ async function sendChatMessageAction() {
   isChatSending.value = true;
   scrollToBottom();
 
+  const provider = settingsForm.value.provider;
+  let apiKey = "";
+  let model = "";
+  let ollamaUrl = "";
+
+  if (provider === "openai") {
+    apiKey = settingsForm.value.openaiApiKey;
+    model = settingsForm.value.openaiModel;
+  } else if (provider === "gemini") {
+    apiKey = settingsForm.value.geminiApiKey;
+    model = settingsForm.value.geminiModel;
+  } else {
+    model = settingsForm.value.ollamaModel;
+    ollamaUrl = settingsForm.value.ollamaUrl;
+  }
+
   try {
-    const res = await sendChatMessage(msg);
+    const res = await sendChatMessage(msg, provider, apiKey, model, ollamaUrl);
     chatMessages.value.push({
       sender: "ai",
       text: res.answer,
@@ -187,7 +242,7 @@ async function sendChatMessageAction() {
     console.error(e);
     chatMessages.value.push({
       sender: "ai",
-      text: "⚠️ **Failed to get a response from your AI Second Brain.** Please verify the backend API server is running."
+      text: "⚠️ **Failed to get a response from your AI Second Brain.** Please verify the backend API server is running and your API settings are correct."
     });
   } finally {
     isChatSending.value = false;
@@ -352,6 +407,7 @@ function parseMarkdown(text: string) {
 }
 
 onMounted(async () => {
+  loadSettings();
   await notes.load();
   if (notes.items.length > 0) {
     selectedNoteId.value = notes.items[0].id;
@@ -603,9 +659,9 @@ onMounted(async () => {
       </div>
 
       <!-- Sidebar Footer -->
-      <div class="border-t border-[#2a2e3b] p-4">
+      <div class="border-t border-[#2a2e3b] p-4 flex gap-2">
         <button
-          class="flex w-full items-center justify-center gap-2 rounded-md bg-[#10b981] px-4 py-2 text-sm font-medium text-white shadow-md shadow-[#10b981]/10 transition hover:bg-[#059669] active:scale-95"
+          class="flex-1 flex items-center justify-center gap-2 rounded-md bg-[#10b981] px-4 py-2 text-sm font-medium text-white shadow-md shadow-[#10b981]/10 transition hover:bg-[#059669] active:scale-95 cursor-pointer"
           @click="createNewNote"
         >
           <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -617,6 +673,26 @@ onMounted(async () => {
             />
           </svg>
           Create Note
+        </button>
+        <button
+          class="rounded-md border border-[#2a2e3b] bg-[#16181d] p-2 text-[#9ca3af] transition hover:border-[#10b981]/50 hover:bg-[#1e2129] hover:text-white cursor-pointer"
+          title="AI Settings"
+          @click="isSettingsOpen = true"
+        >
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+            />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+            />
+          </svg>
         </button>
       </div>
     </aside>
@@ -845,7 +921,7 @@ onMounted(async () => {
             <span
               class="rounded bg-[#10b981]/15 px-2 py-0.5 text-[9px] font-semibold text-[#10b981] border border-[#10b981]/25 uppercase tracking-wider"
             >
-              Local LLM RAG Mode
+              {{ activeProviderName }} RAG Mode
             </span>
           </div>
 
@@ -967,5 +1043,192 @@ onMounted(async () => {
         </div>
       </template>
     </main>
+
+    <!-- AI Settings Modal -->
+    <div
+      v-if="isSettingsOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      @click.self="isSettingsOpen = false"
+    >
+      <div
+        class="w-full max-w-md rounded-xl border border-[#2a2e3b] bg-[#16181d]/90 p-6 shadow-2xl backdrop-blur-md"
+      >
+        <div class="flex items-center justify-between border-b border-[#2a2e3b] pb-4">
+          <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+            <svg
+              class="h-5 w-5 text-[#10b981]"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+              />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            </svg>
+            AI Engine Settings
+          </h2>
+          <button
+            class="text-[#9ca3af] hover:text-white transition cursor-pointer"
+            @click="isSettingsOpen = false"
+          >
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2.5"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div class="mt-4 space-y-4">
+          <!-- Active Provider Selector -->
+          <div>
+            <label
+              class="block text-xs font-semibold uppercase tracking-wider text-[#9ca3af] mb-1.5"
+            >
+              LLM Provider
+            </label>
+            <select
+              v-model="settingsForm.provider"
+              class="w-full rounded-md border border-[#2a2e3b] bg-[#0f1013] px-3 py-2 text-sm text-[#f3f4f6] outline-none transition focus:border-[#10b981]"
+            >
+              <option value="ollama">Ollama (Local)</option>
+              <option value="openai">OpenAI (Cloud)</option>
+              <option value="gemini">Google Gemini (Cloud)</option>
+            </select>
+          </div>
+
+          <!-- Ollama Settings -->
+          <div v-if="settingsForm.provider === 'ollama'" class="space-y-3">
+            <div>
+              <label
+                class="block text-xs font-semibold uppercase tracking-wider text-[#9ca3af] mb-1.5"
+              >
+                Ollama Server URL
+              </label>
+              <input
+                v-model="settingsForm.ollamaUrl"
+                placeholder="http://localhost:11434"
+                class="w-full rounded-md border border-[#2a2e3b] bg-[#0f1013] px-3 py-2 text-sm text-[#f3f4f6] outline-none transition focus:border-[#10b981]"
+              />
+            </div>
+            <div>
+              <label
+                class="block text-xs font-semibold uppercase tracking-wider text-[#9ca3af] mb-1.5"
+              >
+                Model Name
+              </label>
+              <input
+                v-model="settingsForm.ollamaModel"
+                placeholder="llama3.2"
+                class="w-full rounded-md border border-[#2a2e3b] bg-[#0f1013] px-3 py-2 text-sm text-[#f3f4f6] outline-none transition focus:border-[#10b981]"
+              />
+            </div>
+          </div>
+
+          <!-- OpenAI Settings -->
+          <div v-if="settingsForm.provider === 'openai'" class="space-y-3">
+            <div>
+              <label
+                class="block text-xs font-semibold uppercase tracking-wider text-[#9ca3af] mb-1.5"
+              >
+                OpenAI API Key
+              </label>
+              <div class="relative flex items-center">
+                <input
+                  v-model="settingsForm.openaiApiKey"
+                  :type="showOpenaiKey ? 'text' : 'password'"
+                  placeholder="sk-..."
+                  class="w-full rounded-md border border-[#2a2e3b] bg-[#0f1013] py-2 pl-3 pr-10 text-sm text-[#f3f4f6] outline-none transition focus:border-[#10b981]"
+                />
+                <button
+                  type="button"
+                  class="absolute right-3 text-[#9ca3af] hover:text-white cursor-pointer text-xs"
+                  @click="showOpenaiKey = !showOpenaiKey"
+                >
+                  {{ showOpenaiKey ? "Hide" : "Show" }}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label
+                class="block text-xs font-semibold uppercase tracking-wider text-[#9ca3af] mb-1.5"
+              >
+                Model Name
+              </label>
+              <input
+                v-model="settingsForm.openaiModel"
+                placeholder="gpt-4o-mini"
+                class="w-full rounded-md border border-[#2a2e3b] bg-[#0f1013] px-3 py-2 text-sm text-[#f3f4f6] outline-none transition focus:border-[#10b981]"
+              />
+            </div>
+          </div>
+
+          <!-- Gemini Settings -->
+          <div v-if="settingsForm.provider === 'gemini'" class="space-y-3">
+            <div>
+              <label
+                class="block text-xs font-semibold uppercase tracking-wider text-[#9ca3af] mb-1.5"
+              >
+                Gemini API Key
+              </label>
+              <div class="relative flex items-center">
+                <input
+                  v-model="settingsForm.geminiApiKey"
+                  :type="showGeminiKey ? 'text' : 'password'"
+                  placeholder="AIzaSy..."
+                  class="w-full rounded-md border border-[#2a2e3b] bg-[#0f1013] py-2 pl-3 pr-10 text-sm text-[#f3f4f6] outline-none transition focus:border-[#10b981]"
+                />
+                <button
+                  type="button"
+                  class="absolute right-3 text-[#9ca3af] hover:text-white cursor-pointer text-xs"
+                  @click="showGeminiKey = !showGeminiKey"
+                >
+                  {{ showGeminiKey ? "Hide" : "Show" }}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label
+                class="block text-xs font-semibold uppercase tracking-wider text-[#9ca3af] mb-1.5"
+              >
+                Model Name
+              </label>
+              <input
+                v-model="settingsForm.geminiModel"
+                placeholder="gemini-1.5-flash"
+                class="w-full rounded-md border border-[#2a2e3b] bg-[#0f1013] px-3 py-2 text-sm text-[#f3f4f6] outline-none transition focus:border-[#10b981]"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-6 flex justify-end gap-3 border-t border-[#2a2e3b] pt-4">
+          <button
+            class="rounded-md border border-[#2a2e3b] bg-transparent px-4 py-2 text-xs font-semibold text-[#9ca3af] transition hover:bg-[#1e2129] hover:text-white cursor-pointer"
+            @click="isSettingsOpen = false"
+          >
+            Cancel
+          </button>
+          <button
+            class="rounded-md bg-[#10b981] hover:bg-[#059669] px-4 py-2 text-xs font-semibold text-white shadow-md shadow-[#10b981]/10 transition active:scale-95 cursor-pointer"
+            @click="saveSettings"
+          >
+            Save Settings
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

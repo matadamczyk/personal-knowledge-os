@@ -15,6 +15,10 @@ llm_service = LLMService()
 
 class ChatRequest(BaseModel):
     message: str
+    provider: str = "ollama"  # "ollama", "openai", "gemini"
+    api_key: str | None = None
+    model: str | None = None
+    ollama_url: str | None = None
 
 
 class SourceNote(BaseModel):
@@ -78,25 +82,36 @@ def chat_with_knowledge(payload: ChatRequest, db: Session = Depends(get_db)) -> 
         )
 
     # 4. Generate LLM response
-    answer = llm_service.generate_response(prompt)
+    answer = llm_service.generate_response(
+        prompt=prompt,
+        provider=payload.provider,
+        api_key=payload.api_key,
+        model=payload.model,
+        ollama_url=payload.ollama_url,
+    )
 
     # 5. Graceful Fallback if Ollama is offline/fails
     if answer is None:
+        provider_name = "Ollama"
+        if payload.provider == "openai":
+            provider_name = "OpenAI"
+        elif payload.provider == "gemini":
+            provider_name = "Gemini"
+
         if sources:
             sources_summary = "\n".join([f"- **{src.title}**" for src in sources])
             answer = (
-                "⚠️ **Local Ollama is offline or target model is not pulled.**\n\n"
+                f"⚠️ **LLM Provider ({provider_name}) is offline or unreachable.**\n\n"
                 "I was unable to generate a conversational answer, but I "
                 "found the following relevant notes in your database:\n\n"
                 f"{sources_summary}\n\n"
-                "Please verify that the local Ollama server is running "
-                "(`ollama serve`) and the configured model is pulled."
+                "Please verify your API key, model selection, or network connection settings."
             )
         else:
             answer = (
-                "⚠️ **Local Ollama is offline.**\n\n"
+                f"⚠️ **LLM Provider ({provider_name}) is unreachable.**\n\n"
                 "No matching notes were found, and the AI model is unreachable. "
-                "Please make sure the Ollama server is running locally."
+                "Please check your settings and connection."
             )
 
     return ChatResponse(answer=answer, sources=sources)

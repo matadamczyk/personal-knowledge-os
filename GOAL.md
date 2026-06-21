@@ -440,4 +440,19 @@ The final system should evolve into a personal operating system for knowledge:
 - Knowledge reasoning
 - Knowledge visualization
 
+## Obsidian & MCP Integration
+
+To transition from a custom database to a "true" universal second brain, the system will support:
+
+- **Direct Obsidian Vault Sync**: Storing and managing notes directly inside a local folder of plain Markdown `.md` files (compatible with Obsidian vaults).
+- **AI-Powered Note Capture via Chat**: Intercepting conversational inputs in the AI chat to generate and write notes dynamically into the Obsidian vault.
+- **Model Context Protocol (MCP) Server**: Turning the FastAPI backend into an MCP Server, exposing endpoints like note searching (`search_notes`), note creation (`create_note`), and text classification (`classify_text`) so that external editors (Claude Desktop, Cursor, etc.) can natively query and extend the user's knowledge vault.
+
+## Multi-Provider LLM Switcher (Hybrid API / Local Runtime)
+
+To mimic professional chatbots, the system will support flexible model routing:
+
+- **Model Selector UI**: A frontend settings panel allowing users to toggle between local models (Ollama running Phi-4, Qwen, Gemma) and cloud providers (OpenAI GPT, Anthropic Claude, Gemini API).
+- **Backend Model Abstraction Layer**: An unified API interface on the FastAPI backend that routes LLM prompts, summarizations, and chat completions based on the active provider selected by the user.
+
 The application should function as a persistent memory layer augmenting the user's daily work and learning processes.
